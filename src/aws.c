@@ -119,8 +119,6 @@ void connection_start_async_io(struct connection *conn)
 
 	conn->async_read_len = conn->file_size - conn->file_pos;
 
-	dlog(LOG_INFO, "conn->file_size = %ld, conn->file_pos = %ld, conn->eventf = %d\n", conn->file_size, conn->file_pos, conn->eventfd);
-
 	if (conn->file_size > BUFSIZ)
 		conn->async_read_len = BUFSIZ;
 
