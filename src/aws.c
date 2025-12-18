@@ -31,8 +31,8 @@ static int epollfd;
 
 static io_context_t ctx;
 
-int set_non_blocking(int fd) {
-
+int set_non_blocking(int fd)
+{
 	int flags = fcntl(fd, F_GETFL);
 
 	if (flags < 0)
@@ -60,6 +60,7 @@ static void connection_prepare_send_reply_header(struct connection *conn)
 	/* TODO: Prepare the connection buffer to send the reply header. */
 	memset(conn->send_buffer, 0, BUFSIZ);
 	int len = snprintf(conn->send_buffer, BUFSIZ, "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\nConnection: close\r\n\r\n", conn->file_size);
+
 	conn->send_len = len;
 	conn->send_pos = 0;
 
@@ -70,6 +71,7 @@ static void connection_prepare_send_404(struct connection *conn)
 	/* TODO: Prepare the connection buffer to send the 404 header. */
 	memset(conn->send_buffer, 0, BUFSIZ);
 	int len = snprintf(conn->send_buffer, BUFSIZ, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+
 	conn->send_len = len;
 	conn->send_pos = 0;
 
@@ -92,6 +94,7 @@ struct connection *connection_create(int sockfd)
 {
 	/* TODO: Initialize connection structure on given socket. */
 	struct connection *conn = malloc(sizeof(struct connection));
+
 	DIE(conn == NULL, "malloc\n");
 
 	memset(conn, 0, sizeof(struct connection));
@@ -116,7 +119,7 @@ void connection_start_async_io(struct connection *conn)
 
 	conn->async_read_len = conn->file_size - conn->file_pos;
 
-	dlog(LOG_INFO, "conn->file_size = %ld, conn->file_pos = %ld, conn->eventf = %d\n", conn->file_size, conn->file_pos, conn->eventfd);
+	//dlog(LOG_INFO, "conn->file_size = %ld, conn->file_pos = %ld, conn->eventf = %d\n", conn->file_size, conn->file_pos, conn->eventfd);
 
 	if (conn->file_size > BUFSIZ)
 		conn->async_read_len = BUFSIZ;
@@ -149,13 +152,11 @@ void connection_remove(struct connection *conn)
 	if (conn->fd > 0)
 		DIE(close(conn->fd) < 0, "close\n");
 	if (conn->eventfd > 0) {
-		dlog(LOG_INFO, "closing eventfd related stuff...\n");
+		//dlog(LOG_INFO, "closing eventfd related stuff...\n");
 		DIE(close(conn->eventfd) < 0, "close\n");
 		w_epoll_remove_ptr(epollfd, conn->eventfd, conn);
 	}
-	
 	free(conn);
-
 }
 
 void handle_new_connection(void)
@@ -168,7 +169,7 @@ void handle_new_connection(void)
 	int rc;
 
 	/* TODO: Accept new connection. */
-	sockfd = accept(listenfd, &addr, &addrlen);
+	sockfd = accept(listenfd, (struct sockaddr *restrict)&addr, &addrlen);
 	DIE(sockfd < 0, "accept\n");
 
 
@@ -200,13 +201,13 @@ void receive_data(struct connection *conn)
 	bytes_received = recv(conn->sockfd, conn->recv_buffer + conn->recv_len, BUFSIZ - conn->recv_len, 0);
 
 	if (bytes_received == EAGAIN || bytes_received == EWOULDBLOCK) {
-		dlog(LOG_INFO, "recv returned EAGAIN/EWOULDBLOCK, retrying...\n");
+		//dlog(LOG_INFO, "recv returned EAGAIN/EWOULDBLOCK, retrying...\n");
 		conn->state = STATE_RECEIVING_DATA;
 		return;
 	}
 
 	if (bytes_received < 0) {
-		dlog(LOG_INFO, "recv failed, closing connection...\n");
+		//dlog(LOG_INFO, "recv failed, closing connection...\n");
 		conn->state = STATE_CONNECTION_CLOSED;
 		return;
 	}
@@ -218,7 +219,7 @@ void receive_data(struct connection *conn)
 	// ensure we've received the full http request
 	if (strstr(conn->recv_buffer, "\r\n\r\n")) {
 		conn->state = STATE_REQUEST_RECEIVED;
-		dlog(LOG_INFO, "received request of length %ld bytes\n", conn->recv_len);
+		//dlog(LOG_INFO, "received request of length %ld bytes\n", conn->recv_len);
 		DIE(w_epoll_update_ptr_out(epollfd, conn->sockfd, conn) < 0, "w_epoll_update_ptr_out\n");
 		return;
 	}
@@ -229,10 +230,11 @@ void receive_data(struct connection *conn)
 int connection_open_file(struct connection *conn)
 {
 	/* TODO: Open file and update connection fields. */
-	char filepath[BUFSIZ];
-	memset(filepath, 0, BUFSIZ);
-	snprintf(filepath, BUFSIZ, ".%s", conn->request_path);
-	dlog(LOG_INFO,"request_path = %s\n", filepath);
+	char filepath[FILEPATHSIZE];
+
+	memset(filepath, 0, FILEPATHSIZE);
+	snprintf(filepath, FILEPATHSIZE, ".%s", conn->request_path);
+	//dlog(LOG_INFO, "request_path = %s\n", filepath);
 
 	// no such file in path
 	conn->fd = open(filepath, O_RDONLY | O_NONBLOCK);
@@ -244,10 +246,11 @@ int connection_open_file(struct connection *conn)
 	}
 
 	struct stat stats;
+
 	DIE(fstat(conn->fd, &stats) < 0, "fstat\n");
 
 	conn->file_size = stats.st_size;
-	dlog(LOG_INFO, "conn->file_size = %ld\n", conn->file_size);
+	//dlog(LOG_INFO, "conn->file_size = %ld\n", conn->file_size);
 
 	conn->state = STATE_SENDING_HEADER;
 	connection_prepare_send_reply_header(conn);
@@ -287,18 +290,14 @@ void connection_complete_async_io(struct connection *conn)
 		bytes_sent = send(conn->sockfd, conn->send_buffer + conn->send_pos, conn->send_len - conn->send_pos, 0);
 		conn->send_pos += bytes_sent;
 		total += bytes_sent;
-		dlog(LOG_INFO, "async sent %ld/%ld\n", total, conn->send_len);
+		//dlog(LOG_INFO, "async sent %ld/%ld\n", total, conn->send_len);
 	}
-
-	dlog(LOG_INFO, "file_pos = %ld, file_size = %ld\n", conn->file_pos, conn->file_size);
-
-	if (conn->file_pos < conn->file_size) {
+	//dlog(LOG_INFO, "file_pos = %ld, file_size = %ld\n", conn->file_pos, conn->file_size);
+	if (conn->file_pos < conn->file_size)
 		conn->state = STATE_SENDING_DATA;
-	} else
+	else
 		conn->state = STATE_DATA_SENT;
-	
-	dlog(LOG_INFO, "conn->state = %d\n", conn->state);
-
+	//dlog(LOG_INFO, "conn->state = %d\n", conn->state);
 	DIE(w_epoll_remove_ptr(epollfd, conn->eventfd, conn) < 0, "w_epoll_remove_ptr\n");
 	DIE(w_epoll_update_ptr_out(epollfd, conn->sockfd, conn) < 0, "w_epoll_update_ptr_out\n");
 }
@@ -321,10 +320,11 @@ int parse_header(struct connection *conn)
 	};
 
 	size_t bytes_read = 0;
+
 	bytes_read = http_parser_execute(&conn->request_parser, &settings_on_path, conn->recv_buffer, conn->recv_len);
 
 	if (bytes_read) {
-		dlog(LOG_INFO,"request_path %s\n", conn->request_path);
+		//dlog(LOG_INFO,"request_path %s\n", conn->request_path);
 		conn->res_type = connection_get_resource_type(conn);
 	}
 
@@ -337,20 +337,20 @@ enum connection_state connection_send_static(struct connection *conn)
 	/* TODO: Send static data using sendfile(2). */
 	ssize_t bytes_sent = 0;
 
-	bytes_sent = sendfile(conn->sockfd, conn->fd, &conn->file_pos, conn->file_size - conn->file_pos);
+	bytes_sent = sendfile(conn->sockfd, conn->fd, (off_t*)&conn->file_pos, conn->file_size - conn->file_pos);
 	
 	if (bytes_sent < 0) {
 
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
-			dlog(LOG_INFO, "sendfile returned EAGAIN/EWOULDBLOCK, retrying...\n");
+			//dlog(LOG_INFO, "sendfile returned EAGAIN/EWOULDBLOCK, retrying...\n");
 			return STATE_SENDING_DATA;
 		}
 
-		dlog(LOG_INFO,"sendfile failed, closing connection...\n");
+		//dlog(LOG_INFO,"sendfile failed, closing connection...\n");
 		return STATE_CONNECTION_CLOSED;
 	}
 
-	dlog(LOG_INFO, "sendfile progress %ld/%ld\n", conn->file_pos, conn->file_size);
+	//dlog(LOG_INFO, "sendfile progress %ld/%ld\n", conn->file_pos, conn->file_size);
 
 	if (conn->file_pos >= conn->file_size)
 		return STATE_DATA_SENT;
@@ -374,19 +374,19 @@ int connection_send_data(struct connection *conn)
 		bytes_sent = send(conn->sockfd, conn->send_buffer + conn->send_pos, conn->send_len - conn->send_pos, 0);
 		conn->send_pos += bytes_sent;
 
-		dlog(LOG_INFO, "send progress %ld/%ld\n", conn->send_pos, conn->send_len);
+		//dlog(LOG_INFO, "send progress %ld/%ld\n", conn->send_pos, conn->send_len);
 
 		if (conn->send_len == conn->send_pos) {
-			conn->state = (STATE_SENDING_HEADER == conn->state ? STATE_HEADER_SENT : STATE_404_SENT);
-			dlog(LOG_INFO, "header to send = %s\n", conn->send_buffer);
+			conn->state = (conn->state == STATE_SENDING_HEADER ? STATE_HEADER_SENT : STATE_404_SENT);
+			//dlog(LOG_INFO, "header to send = %s\n", conn->send_buffer);
 		}
 
 		if (bytes_sent < 0) {
 			if (errno == EAGAIN || errno == EWOULDBLOCK) {
-				dlog(LOG_INFO, "send returned EAGAIN/EWOULDBLOCK, retrying...\n");
+				//dlog(LOG_INFO, "send returned EAGAIN/EWOULDBLOCK, retrying...\n");
 				return -1;
 			}
-			dlog(LOG_INFO, "send failed, closing connection...\n");
+			//dlog(LOG_INFO, "send failed, closing connection...\n");
 			conn->state = STATE_CONNECTION_CLOSED;
 			return -1;
 		}
@@ -408,7 +408,7 @@ int connection_send_dynamic(struct connection *conn)
 	 * Returns 0 on success and -1 on error.
 	 */
 	if (conn->state != STATE_ASYNC_ONGOING) {
-		dlog(LOG_INFO, "starting async io\n");
+		//dlog(LOG_INFO, "starting async io\n");
 		connection_start_async_io(conn);
 		return 0;
 	}
@@ -426,12 +426,12 @@ void handle_input(struct connection *conn)
 
 	switch (conn->state) {
 	case STATE_INITIAL:
-		dlog(LOG_INFO, "we are in state %d\n", conn->state);
+		//dlog(LOG_INFO, "we are in state %d\n", conn->state);
 	case STATE_RECEIVING_DATA:
 		receive_data(conn);
 		break;
 	case STATE_ASYNC_ONGOING:
-		dlog(LOG_INFO, "async read finished\n");
+		//dlog(LOG_INFO, "async read finished\n");
 		connection_complete_async_io(conn);
 		break;
 	default:
@@ -456,16 +456,16 @@ void handle_output(struct connection *conn)
 		connection_send_data(conn);
 		break;
 	case STATE_404_SENT:
-		dlog(LOG_INFO, "404 sent\n");
+		//dlog(LOG_INFO, "404 sent\n");
 	case STATE_DATA_SENT:
-		dlog(LOG_INFO, "Data sent\n");
+		//dlog(LOG_INFO, "Data sent\n");
 	case STATE_CONNECTION_CLOSED:
-		dlog(LOG_INFO,"Closing connection\n");
+		//dlog(LOG_INFO,"Closing connection\n");
 		connection_remove(conn);
 		break;
 
 	default:
-		dlog(LOG_ERR, "%d\n", conn->state);
+		//dlog(LOG_ERR, "%d\n", conn->state);
 		ERR("Unexpected state\n");
 		exit(1);
 	}
@@ -476,17 +476,14 @@ void handle_client(uint32_t event, struct connection *conn)
 	/* TODO: Handle new client. There can be input and output connections.
 	 * Take care of what happened at the end of a connection.
 	 */
-	if (event & EPOLLIN) {
+	if (event & EPOLLIN)
 		handle_input(conn);
-	} else if (event & EPOLLOUT) {
+	else if (event & EPOLLOUT)
 		handle_output(conn);
-	}
 }
 
 int main(void)
 {
-	int rc;
-
 	/* TODO: Initialize asynchronous operations. */
 
 	DIE(io_setup(AWS_MAX_AIO, &ctx) < 0, "io_setup\n");
@@ -508,7 +505,7 @@ int main(void)
 	DIE(w_epoll_add_fd_in(epollfd, listenfd) < 0, "w_epoll_add_fd_in\n");
 
 	/* Uncomment the following line for debugging. */
-	dlog(LOG_INFO, "Server waiting for connections on port %d\n", AWS_LISTEN_PORT);
+	//dlog(LOG_INFO, "Server waiting for connections on port %d\n", AWS_LISTEN_PORT);
 
 	/* server main loop */
 	while (1) {
@@ -521,11 +518,11 @@ int main(void)
 		 *   - socket communication (on connection sockets)
 		 */
 
-		rc = w_epoll_wait_infinite(epollfd, &rev);
+		DIE(w_epoll_wait_infinite(epollfd, &rev) < 0, "w_epoll_wait_infinite");
 
 		if (rev.data.fd == listenfd) {
 			if (rev.events & EPOLLIN) {
-				dlog(LOG_INFO, "New connection received\n");
+				//dlog(LOG_INFO, "New connection received\n");
 				handle_new_connection();
 			}
 		} else {
