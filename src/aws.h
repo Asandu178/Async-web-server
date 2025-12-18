@@ -105,4 +105,3 @@ void receive_data(struct connection *conn);
 #endif
 
 #endif /* AWS_H_ */
-w_epoll_add_ptr_out;
