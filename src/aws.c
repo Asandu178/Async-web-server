@@ -323,7 +323,7 @@ int parse_header(struct connection *conn)
 	bytes_read = http_parser_execute(&conn->request_parser, &settings_on_path, conn->recv_buffer, conn->recv_len);
 
 	if (bytes_read) {
-		dlog(LOG_INFO,"request_path %s\n", conn->request_path);
+		dlog(LOG_INFO, "request_path %s\n", conn->request_path);
 		conn->res_type = connection_get_resource_type(conn);
 	}
 
@@ -343,7 +343,7 @@ enum connection_state connection_send_static(struct connection *conn)
 			dlog(LOG_INFO, "sendfile returned EAGAIN/EWOULDBLOCK, retrying...\n");
 			return STATE_SENDING_DATA;
 		}
-		dlog(LOG_INFO,"sendfile failed, closing connection...\n");
+		dlog(LOG_INFO, "sendfile failed, closing connection...\n");
 		return STATE_CONNECTION_CLOSED;
 	}
 
@@ -451,7 +451,7 @@ void handle_output(struct connection *conn)
 	case STATE_DATA_SENT:
 		dlog(LOG_INFO, "Data sent\n");
 	case STATE_CONNECTION_CLOSED:
-		dlog(LOG_INFO,"Closing connection\n");
+		dlog(LOG_INFO, "Closing connection\n");
 		connection_remove(conn);
 		break;
 
