@@ -16,6 +16,7 @@ extern "C" {
 #define AWS_ABS_STATIC_FOLDER	(AWS_DOCUMENT_ROOT AWS_REL_STATIC_FOLDER)
 #define AWS_ABS_DYNAMIC_FOLDER	(AWS_DOCUMENT_ROOT AWS_REL_DYNAMIC_FOLDER)
 #define AWS_BACKLOG 20
+#define AWS_MAX_AIO 100
 
 enum connection_state {
 	STATE_INITIAL,
@@ -104,3 +105,4 @@ void receive_data(struct connection *conn);
 #endif
 
 #endif /* AWS_H_ */
+w_epoll_add_ptr_out;

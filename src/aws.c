@@ -107,6 +107,36 @@ void connection_start_async_io(struct connection *conn)
 	/* TODO: Start asynchronous operation (read from file).
 	 * Use io_submit(2) & friends for reading data asynchronously.
 	 */
+
+	conn->eventfd = eventfd(0, EFD_NONBLOCK);
+
+	DIE(conn->eventfd < 0, "eventfd\n");
+
+	memset(conn->send_buffer, 0, BUFSIZ);
+
+	conn->async_read_len = conn->file_size - conn->file_pos;
+
+	dlog(LOG_INFO, "conn->file_size = %ld, conn->file_pos = %ld, conn->eventf = %d\n", conn->file_size, conn->file_pos, conn->eventfd);
+
+	if (conn->file_size > BUFSIZ)
+		conn->async_read_len = BUFSIZ;
+
+
+	io_prep_pread(&conn->iocb, conn->fd, conn->send_buffer, conn->async_read_len, conn->file_pos);
+
+	io_set_eventfd(&conn->iocb, conn->eventfd);
+
+	conn->piocb[0] = &conn->iocb;
+
+	conn->state = STATE_ASYNC_ONGOING;
+
+	DIE(w_epoll_update_ptr_in(epollfd, conn->sockfd, conn) < 0, "w_epoll_update_ptr_in\n");
+
+	// add it to epoll event pool
+	DIE(w_epoll_add_ptr_in(epollfd, conn->eventfd, conn) < 0, "w_epoll_add_ptr_in\n");
+
+	DIE(io_submit(ctx, 1, conn->piocb) < 0, "io_submit\n");
+
 }
 
 void connection_remove(struct connection *conn)
@@ -118,8 +148,11 @@ void connection_remove(struct connection *conn)
 		DIE(close(conn->sockfd) < 0, "close\n");
 	if (conn->fd > 0)
 		DIE(close(conn->fd) < 0, "close\n");
-	if (conn->eventfd > 0)
+	if (conn->eventfd > 0) {
+		dlog(LOG_INFO, "closing eventfd related stuff...\n");
 		DIE(close(conn->eventfd) < 0, "close\n");
+		w_epoll_remove_ptr(epollfd, conn->eventfd, conn);
+	}
 	
 	free(conn);
 
@@ -175,7 +208,6 @@ void receive_data(struct connection *conn)
 	if (bytes_received < 0) {
 		dlog(LOG_INFO, "recv failed, closing connection...\n");
 		conn->state = STATE_CONNECTION_CLOSED;
-		// maybe remove_connection here ?
 		return;
 	}
 
@@ -228,6 +260,47 @@ void connection_complete_async_io(struct connection *conn)
 	/* TODO: Complete asynchronous operation; operation returns successfully.
 	 * Prepare socket for sending.
 	 */
+
+	u_int64_t efd_val;
+	int rc;
+
+	if (read(conn->eventfd, &efd_val, sizeof(efd_val)) < 0) {
+		conn->state = STATE_CONNECTION_CLOSED;
+		return;
+	}
+
+	struct io_event event;
+
+	rc = io_getevents(ctx, 1, 1, &event, NULL);
+	if (rc < 0) {
+		conn->state = STATE_CONNECTION_CLOSED;
+		return;
+	}
+
+	conn->send_len = event.res;
+	conn->send_pos = 0;
+	conn->file_pos += event.res;
+	ssize_t bytes_sent = 1;
+	ssize_t total = 0;
+
+	while (bytes_sent) {
+		bytes_sent = send(conn->sockfd, conn->send_buffer + conn->send_pos, conn->send_len - conn->send_pos, 0);
+		conn->send_pos += bytes_sent;
+		total += bytes_sent;
+		dlog(LOG_INFO, "async sent %ld/%ld\n", total, conn->send_len);
+	}
+
+	dlog(LOG_INFO, "file_pos = %ld, file_size = %ld\n", conn->file_pos, conn->file_size);
+
+	if (conn->file_pos < conn->file_size) {
+		conn->state = STATE_SENDING_DATA;
+	} else
+		conn->state = STATE_DATA_SENT;
+	
+	dlog(LOG_INFO, "conn->state = %d\n", conn->state);
+
+	DIE(w_epoll_remove_ptr(epollfd, conn->eventfd, conn) < 0, "w_epoll_remove_ptr\n");
+	DIE(w_epoll_update_ptr_out(epollfd, conn->sockfd, conn) < 0, "w_epoll_update_ptr_out\n");
 }
 
 int parse_header(struct connection *conn)
@@ -274,7 +347,6 @@ enum connection_state connection_send_static(struct connection *conn)
 		}
 
 		dlog(LOG_INFO,"sendfile failed, closing connection...\n");
-		// might also need to remove from here?
 		return STATE_CONNECTION_CLOSED;
 	}
 
@@ -316,16 +388,13 @@ int connection_send_data(struct connection *conn)
 			}
 			dlog(LOG_INFO, "send failed, closing connection...\n");
 			conn->state = STATE_CONNECTION_CLOSED;
-			// maybe remove_connection here ?
 			return -1;
 		}
 
 	} else if (conn->res_type == RESOURCE_TYPE_STATIC) {
 		conn->state = connection_send_static(conn);
 	} else if (conn->res_type == RESOURCE_TYPE_DYNAMIC) {
-		conn->state = STATE_CONNECTION_CLOSED;
-		//conn->state = STATE_ASYNC_ONGOING;
-		//connection_send_dynamic(conn);
+		return connection_send_dynamic(conn);
 	}
 
 
@@ -338,7 +407,14 @@ int connection_send_dynamic(struct connection *conn)
 	/* TODO: Read data asynchronously.
 	 * Returns 0 on success and -1 on error.
 	 */
+	if (conn->state != STATE_ASYNC_ONGOING) {
+		dlog(LOG_INFO, "starting async io\n");
+		connection_start_async_io(conn);
+		return 0;
+	}
+
 	return 0;
+
 }
 
 
@@ -354,7 +430,10 @@ void handle_input(struct connection *conn)
 	case STATE_RECEIVING_DATA:
 		receive_data(conn);
 		break;
-		
+	case STATE_ASYNC_ONGOING:
+		dlog(LOG_INFO, "async read finished\n");
+		connection_complete_async_io(conn);
+		break;
 	default:
 		printf("shouldn't get here %d\n", conn->state);
 	}
@@ -410,6 +489,8 @@ int main(void)
 
 	/* TODO: Initialize asynchronous operations. */
 
+	DIE(io_setup(AWS_MAX_AIO, &ctx) < 0, "io_setup\n");
+
 	epollfd = w_epoll_create();
 	
 	DIE(epollfd < 0, "w_epoll_create\n");
@@ -448,12 +529,6 @@ int main(void)
 				handle_new_connection();
 			}
 		} else {
-			if (rev.events & EPOLLIN) {
-				//dlog(LOG_INFO, "New message received for existing connection\n");
-			}
-			if (rev.events & EPOLLOUT) {
-				//dlog(LOG_INFO, "Message sent to existing connection\n");
-			}
 			handle_client(rev.events, rev.data.ptr);
 		}
 	}
