@@ -59,22 +59,22 @@ static void connection_prepare_send_reply_header(struct connection *conn)
 {
 	/* TODO: Prepare the connection buffer to send the reply header. */
 	memset(conn->send_buffer, 0, BUFSIZ);
-	int len = snprintf(conn->send_buffer, BUFSIZ, "HTTP/1.1 200 OK\r\nContent-Length: %ld\r\nConnection: close\r\n\r\n", conn->file_size);
+	int len = snprintf(conn->send_buffer, BUFSIZ,
+		"HTTP/1.1 200 OK\r\nContent-Length: %ld\r\nConnection: close\r\n\r\n", conn->file_size);
 
 	conn->send_len = len;
 	conn->send_pos = 0;
-
 }
 
 static void connection_prepare_send_404(struct connection *conn)
 {
 	/* TODO: Prepare the connection buffer to send the 404 header. */
 	memset(conn->send_buffer, 0, BUFSIZ);
-	int len = snprintf(conn->send_buffer, BUFSIZ, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+	int len = snprintf(conn->send_buffer, BUFSIZ,
+		"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 
 	conn->send_len = len;
 	conn->send_pos = 0;
-
 }
 
 static enum resource_type connection_get_resource_type(struct connection *conn)
@@ -119,7 +119,8 @@ void connection_start_async_io(struct connection *conn)
 
 	conn->async_read_len = conn->file_size - conn->file_pos;
 
-	//dlog(LOG_INFO, "conn->file_size = %ld, conn->file_pos = %ld, conn->eventf = %d\n", conn->file_size, conn->file_pos, conn->eventfd);
+	//dlog(LOG_INFO, "conn->file_size = %ld,
+	//conn->file_pos = %ld, conn->eventf = %d\n", conn->file_size, conn->file_pos, conn->eventfd);
 
 	if (conn->file_size > BUFSIZ)
 		conn->async_read_len = BUFSIZ;
@@ -139,7 +140,6 @@ void connection_start_async_io(struct connection *conn)
 	DIE(w_epoll_add_ptr_in(epollfd, conn->eventfd, conn) < 0, "w_epoll_add_ptr_in\n");
 
 	DIE(io_submit(ctx, 1, conn->piocb) < 0, "io_submit\n");
-
 }
 
 void connection_remove(struct connection *conn)
@@ -186,8 +186,6 @@ void handle_new_connection(void)
 	/* TODO: Initialize HTTP_REQUEST parser. */
 	http_parser_init(&conn->request_parser, HTTP_REQUEST);
 	conn->request_parser.data = conn;
-
-
 }
 
 void receive_data(struct connection *conn)
@@ -337,15 +335,13 @@ enum connection_state connection_send_static(struct connection *conn)
 	/* TODO: Send static data using sendfile(2). */
 	ssize_t bytes_sent = 0;
 
-	bytes_sent = sendfile(conn->sockfd, conn->fd, (off_t*)&conn->file_pos, conn->file_size - conn->file_pos);
-	
-	if (bytes_sent < 0) {
+	bytes_sent = sendfile(conn->sockfd, conn->fd, (off_t *)&conn->file_pos, conn->file_size - conn->file_pos);
 
+	if (bytes_sent < 0) {
 		if (errno == EAGAIN || errno == EWOULDBLOCK) {
 			//dlog(LOG_INFO, "sendfile returned EAGAIN/EWOULDBLOCK, retrying...\n");
 			return STATE_SENDING_DATA;
 		}
-
 		//dlog(LOG_INFO,"sendfile failed, closing connection...\n");
 		return STATE_CONNECTION_CLOSED;
 	}
@@ -356,8 +352,6 @@ enum connection_state connection_send_static(struct connection *conn)
 		return STATE_DATA_SENT;
 
 	return STATE_SENDING_DATA;
-
-
 }
 
 int connection_send_data(struct connection *conn)
@@ -369,7 +363,7 @@ int connection_send_data(struct connection *conn)
 
 
 	ssize_t bytes_sent = 0;
-	
+
 	if (conn->state == STATE_SENDING_HEADER || conn->state == STATE_SENDING_404) {
 		bytes_sent = send(conn->sockfd, conn->send_buffer + conn->send_pos, conn->send_len - conn->send_pos, 0);
 		conn->send_pos += bytes_sent;
@@ -396,8 +390,6 @@ int connection_send_data(struct connection *conn)
 	} else if (conn->res_type == RESOURCE_TYPE_DYNAMIC) {
 		return connection_send_dynamic(conn);
 	}
-
-
 	return 0;
 }
 
@@ -412,9 +404,7 @@ int connection_send_dynamic(struct connection *conn)
 		connection_start_async_io(conn);
 		return 0;
 	}
-
 	return 0;
-
 }
 
 
@@ -489,7 +479,6 @@ int main(void)
 	DIE(io_setup(AWS_MAX_AIO, &ctx) < 0, "io_setup\n");
 
 	epollfd = w_epoll_create();
-	
 	DIE(epollfd < 0, "w_epoll_create\n");
 
 	/* TODO: Initialize multiplexing. */
@@ -529,6 +518,5 @@ int main(void)
 			handle_client(rev.events, rev.data.ptr);
 		}
 	}
-
 	return 0;
 }
